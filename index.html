@@ -2,7 +2,6 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
-  <meta name="robots" content="noindex,nofollow" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>グループ観察タイマー</title>
@@ -126,6 +125,7 @@
     .custom{display:flex;align-items:center;gap:8px;background:var(--panel2);border-radius:22px;padding:8px 12px;color:var(--muted);font-weight:800;}
     .custom.active{outline:4px solid rgba(56,189,248,.35);background:#164e63;color:var(--text);}
     .custom input{width:76px;border:0;border-radius:14px;padding:10px 8px;text-align:center;background:#e5e7eb;color:#111827;font-weight:950;font-size:clamp(18px,2vw,28px);}
+    .custom select{width:auto;min-width:68px;padding:10px 8px;border-radius:14px;font-size:clamp(16px,1.7vw,24px);}
 
     .settings{
       display:grid;
@@ -192,10 +192,11 @@
 
     <footer>
       <div class="presets" aria-label="時間プリセット">
-        <button data-min="1" id="preset1">1分</button>
-        <button data-min="3" id="preset3">3分</button>
-        <button data-min="5" id="preset5">5分</button>
-        <label class="custom" id="customBox">任意<input id="customMin" type="number" min="1" max="180" value="3" inputmode="numeric">分</label>
+        <button data-sec="30" id="preset30">30秒</button>
+        <button data-sec="60" id="preset1">1分</button>
+        <button data-sec="180" id="preset3">3分</button>
+        <button data-sec="300" id="preset5">5分</button>
+        <label class="custom" id="customBox">任意<input id="customValue" type="number" min="1" max="10800" value="3" inputmode="numeric"><select id="customUnit" aria-label="任意時間の単位"><option value="minutes">分</option><option value="seconds">秒</option></select></label>
       </div>
       <div class="actions">
         <button class="primary" id="startBtn">開始</button>
@@ -225,6 +226,20 @@
           <option value="silent">無音</option>
         </select>
       </div>
+      <div class="setting-card">
+        <div class="setting-label">連続</div>
+        <select id="autoMode">
+          <option value="off">自動開始しない</option>
+          <option value="on">5秒後に自動開始</option>
+        </select>
+      </div>
+      <div class="setting-card">
+        <div class="setting-label">声</div>
+        <select id="voiceMode">
+          <option value="female">女性寄り</option>
+          <option value="male">男性寄り</option>
+        </select>
+      </div>
     </section>
   </div>
 
@@ -242,23 +257,29 @@
     const wakeBtn = document.getElementById('wakeBtn');
     const wakeDot = document.getElementById('wakeDot');
     const wakeText = document.getElementById('wakeText');
-    const customMin = document.getElementById('customMin');
+    const customValue = document.getElementById('customValue');
+    const customUnit = document.getElementById('customUnit');
     const customBox = document.getElementById('customBox');
     const volumeSlider = document.getElementById('volumeSlider');
     const volumeValue = document.getElementById('volumeValue');
     const notifyMode = document.getElementById('notifyMode');
-    const presetButtons = [...document.querySelectorAll('[data-min]')];
+    const autoMode = document.getElementById('autoMode');
+    const voiceMode = document.getElementById('voiceMode');
+    const presetButtons = [...document.querySelectorAll('[data-sec]')];
 
-    const STORAGE_KEY = 'groupObservationTimerSettingsV3';
+    const STORAGE_KEY = 'groupObservationTimerSettingsV4';
 
     let durationMs = 3 * 60 * 1000;
     let remainingMs = durationMs;
     let selectedMode = 'preset';
-    let selectedMinutes = 3;
-    let selectedPreset = 3;
+    let selectedSeconds = 180;
+    let selectedPresetSeconds = 180;
     let endAt = null;
     let running = false;
     let paused = false;
+    let intervalRunning = false;
+    let autoStartTimer = null;
+    let intervalEndAt = null;
     let rafId = null;
     let wakeLock = null;
     let audioCtx = null;
@@ -290,11 +311,14 @@
       try{
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
           selectedMode,
-          selectedMinutes,
-          selectedPreset,
-          customMinutes: Number(customMin.value) || selectedMinutes,
+          selectedSeconds,
+          selectedPresetSeconds,
+          customValue: Number(customValue.value) || 3,
+          customUnit: customUnit.value,
           volume: Number(volumeSlider.value),
           notifyMode: notifyMode.value,
+          autoMode: autoMode.value,
+          voiceMode: voiceMode.value,
           desiredWakeEnabled
         }));
       }catch(e){}
@@ -303,14 +327,16 @@
     function applyLoadedSettings(){
       const s = safeLoadSettings();
       selectedMode = s.selectedMode === 'custom' ? 'custom' : 'preset';
-      selectedPreset = [1,3,5].includes(Number(s.selectedPreset)) ? Number(s.selectedPreset) : 3;
-      const loadedMinutes = Math.max(1, Math.min(180, Number(s.selectedMinutes) || selectedPreset));
-      selectedMinutes = loadedMinutes;
-      customMin.value = Math.max(1, Math.min(180, Number(s.customMinutes) || loadedMinutes));
+      selectedPresetSeconds = [30,60,180,300].includes(Number(s.selectedPresetSeconds)) ? Number(s.selectedPresetSeconds) : 180;
+      selectedSeconds = Math.max(1, Math.min(10800, Number(s.selectedSeconds) || selectedPresetSeconds));
+      customUnit.value = s.customUnit === 'seconds' ? 'seconds' : 'minutes';
+      customValue.value = Math.max(1, Math.min(customUnit.value === 'seconds' ? 10800 : 180, Number(s.customValue) || (customUnit.value === 'seconds' ? selectedSeconds : Math.max(1, Math.round(selectedSeconds / 60)))));
       volumeSlider.value = Math.max(0, Math.min(100, Number.isFinite(Number(s.volume)) ? Number(s.volume) : 70));
       notifyMode.value = ['sound','speech','both','silent'].includes(s.notifyMode) ? s.notifyMode : 'sound';
+      autoMode.value = s.autoMode === 'on' ? 'on' : 'off';
+      voiceMode.value = s.voiceMode === 'male' ? 'male' : 'female';
       desiredWakeEnabled = Boolean(s.desiredWakeEnabled);
-      durationMs = selectedMinutes * 60 * 1000;
+      durationMs = selectedSeconds * 1000;
       remainingMs = durationMs;
       updateWakeButton(false);
       updateVolumeLabel();
@@ -340,6 +366,18 @@
         // 一部ブラウザで音声リストの初期化を促すために参照だけ行う
         speechSynthesis.getVoices?.();
       }catch(e){}
+    }
+
+    function pickJapaneseVoice(){
+      if(!('speechSynthesis' in window) || !speechSynthesis.getVoices) return null;
+      const voices = speechSynthesis.getVoices();
+      const japaneseVoices = voices.filter(v => (v.lang || '').toLowerCase().startsWith('ja'));
+      if(!japaneseVoices.length) return null;
+      const wantsMale = voiceMode.value === 'male';
+      const maleHints = ['male','男','otoya','ichiro','keita'];
+      const femaleHints = ['female','女','kyoko','nanami','haruka'];
+      const hints = wantsMale ? maleHints : femaleHints;
+      return japaneseVoices.find(v => hints.some(h => v.name.toLowerCase().includes(h.toLowerCase()))) || japaneseVoices[0];
     }
 
     function tone(freq, startDelay = 0, duration = 0.18, volume = 0.09){
@@ -380,8 +418,10 @@
         speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'ja-JP';
+        const voice = pickJapaneseVoice();
+        if(voice) utterance.voice = voice;
         utterance.rate = 1.0;
-        utterance.pitch = 1.0;
+        utterance.pitch = voiceMode.value === 'male' ? 0.72 : 1.08;
         utterance.volume = Math.max(0, Math.min(1, Number(volumeSlider.value) / 100));
         speechSynthesis.speak(utterance);
         return true;
@@ -394,13 +434,20 @@
       const mode = notifyMode.value;
       if(mode === 'silent') return;
       if(mode === 'sound' || mode === 'both'){
+        if(kind === 'start') warningSound();
         if(kind === 'warning') warningSound();
         if(kind === 'finish') finishSound();
       }
       if(mode === 'speech' || mode === 'both'){
-        const ok = speak(kind === 'warning' ? '終了30秒前です' : '終了です');
+        const messages = {
+          start: '開始します',
+          warning: '終了30秒前です',
+          finish: '終了です。次のかたに回してください'
+        };
+        const ok = speak(messages[kind] || '');
         // 読み上げのみで非対応の場合は、完全な無反応を避けるため電子音にフォールバック
         if(!ok && mode === 'speech'){
+          if(kind === 'start') warningSound();
           if(kind === 'warning') warningSound();
           if(kind === 'finish') finishSound();
         }
@@ -417,12 +464,13 @@
 
     function renderSelection(){
       presetButtons.forEach(btn => {
-        const min = Number(btn.dataset.min);
-        btn.classList.toggle('selected', selectedMode === 'preset' && selectedPreset === min);
-        btn.disabled = running;
+        const sec = Number(btn.dataset.sec);
+        btn.classList.toggle('selected', selectedMode === 'preset' && selectedPresetSeconds === sec);
+        btn.disabled = running || intervalRunning;
       });
       customBox.classList.toggle('active', selectedMode === 'custom');
-      customMin.disabled = running;
+      customValue.disabled = running || intervalRunning;
+      customUnit.disabled = running || intervalRunning;
     }
 
     function render(){
@@ -436,7 +484,10 @@
       app.classList.toggle('caution', isCaution);
       app.classList.toggle('done', isDone);
 
-      if(isDone){
+      if(intervalRunning){
+        modeLabel.textContent = '交代時間';
+        phaseLabel.textContent = '5秒後に次のタイマーを開始します';
+      }else if(isDone){
         modeLabel.textContent = '終了';
         phaseLabel.textContent = '終了しました';
       }else if(isPaused){
@@ -453,7 +504,9 @@
         phaseLabel.textContent = '時間を設定して開始してください';
       }
 
-      if(running){
+      if(intervalRunning){
+        startBtn.textContent = '待機中';
+      }else if(running){
         startBtn.textContent = '進行中';
       }else if(isDone){
         startBtn.textContent = '再開始';
@@ -468,19 +521,19 @@
         resetOriginalText = '長押しリセット';
       }
 
-      startBtn.disabled = running;
+      startBtn.disabled = running || intervalRunning;
       pauseBtn.disabled = !running;
       renderSelection();
     }
 
-    function setDuration(minutes, mode = 'custom'){
-      if(running) return;
+    function setDurationSeconds(seconds, mode = 'custom'){
+      if(running || intervalRunning) return;
       paused = false;
-      const min = Math.max(1, Math.min(180, Number(minutes) || 3));
+      const sec = Math.max(1, Math.min(10800, Number(seconds) || 180));
       selectedMode = mode;
-      selectedMinutes = min;
-      if(mode === 'preset') selectedPreset = min;
-      durationMs = min * 60 * 1000;
+      selectedSeconds = sec;
+      if(mode === 'preset') selectedPresetSeconds = sec;
+      durationMs = sec * 1000;
       remainingMs = durationMs;
       warnedThirtySeconds = false;
       finishedSoundPlayed = false;
@@ -488,10 +541,19 @@
       render();
     }
 
+    function customSecondsFromInput(){
+      const value = Math.max(1, Number(customValue.value) || 1);
+      return customUnit.value === 'seconds' ? value : value * 60;
+    }
+
     function start(){
-      if(running) return;
+      if(running || intervalRunning) return;
       initAudio();
       prepareSpeech();
+      if(autoStartTimer){
+        clearTimeout(autoStartTimer);
+        autoStartTimer = null;
+      }
       if(remainingMs <= 0){
         remainingMs = durationMs;
         warnedThirtySeconds = false;
@@ -505,6 +567,7 @@
       running = true;
       endAt = performance.now() + remainingMs;
       if(desiredWakeEnabled) requestWakeLock();
+      notify('start');
       tick();
     }
 
@@ -519,7 +582,12 @@
 
     function reset(){
       running = false;
+      intervalRunning = false;
       paused = false;
+      if(autoStartTimer){
+        clearTimeout(autoStartTimer);
+        autoStartTimer = null;
+      }
       cancelAnimationFrame(rafId);
       remainingMs = durationMs;
       warnedThirtySeconds = false;
@@ -532,7 +600,7 @@
       if(!running) return;
       remainingMs = Math.max(0, endAt - performance.now());
 
-      if(!warnedThirtySeconds && remainingMs <= 30 * 1000 && remainingMs > 0){
+      if(durationMs > 30 * 1000 && !warnedThirtySeconds && remainingMs <= 30 * 1000 && remainingMs > 0){
         warnedThirtySeconds = true;
         notify('warning');
       }
@@ -548,9 +616,38 @@
           notify('finish');
         }
         render();
+        if(autoMode.value === 'on'){
+          beginAutoInterval();
+        }
         return;
       }
       rafId = requestAnimationFrame(tick);
+    }
+
+    function beginAutoInterval(){
+      intervalRunning = true;
+      remainingMs = 5 * 1000;
+      intervalEndAt = performance.now() + remainingMs;
+      autoIntervalTick();
+    }
+
+    function autoIntervalTick(){
+      if(!intervalRunning) return;
+      remainingMs = Math.max(0, intervalEndAt - performance.now());
+      render();
+      if(remainingMs <= 0){
+        intervalRunning = false;
+        remainingMs = durationMs;
+        warnedThirtySeconds = false;
+        finishedSoundPlayed = false;
+        render();
+        autoStartTimer = setTimeout(() => {
+          autoStartTimer = null;
+          start();
+        }, 50);
+        return;
+      }
+      rafId = requestAnimationFrame(autoIntervalTick);
     }
 
     function updateWakeButton(active){
@@ -649,31 +746,43 @@
 
     presetButtons.forEach(btn => {
       btn.addEventListener('click', () => {
-        const min = Number(btn.dataset.min);
-        customMin.value = min;
-        setDuration(min, 'preset');
+        const sec = Number(btn.dataset.sec);
+        if(sec % 60 === 0){
+          customValue.value = sec / 60;
+          customUnit.value = 'minutes';
+        }else{
+          customValue.value = sec;
+          customUnit.value = 'seconds';
+        }
+        setDurationSeconds(sec, 'preset');
       });
     });
 
-    customMin.addEventListener('focus', () => {
+    customValue.addEventListener('focus', () => {
       if(!running) selectedMode = 'custom';
       renderSelection();
     });
-    customMin.addEventListener('change', () => setDuration(customMin.value, 'custom'));
-    customMin.addEventListener('input', () => {
+    customValue.addEventListener('change', () => setDurationSeconds(customSecondsFromInput(), 'custom'));
+    customValue.addEventListener('input', () => {
       if(!running){
         selectedMode = 'custom';
-        selectedMinutes = Math.max(1, Math.min(180, Number(customMin.value) || 3));
+        selectedSeconds = Math.max(1, Math.min(10800, customSecondsFromInput()));
         safeSaveSettings();
         renderSelection();
       }
     });
+    customUnit.addEventListener('change', () => setDurationSeconds(customSecondsFromInput(), 'custom'));
 
     volumeSlider.addEventListener('input', () => {
       updateVolumeLabel();
       safeSaveSettings();
     });
     notifyMode.addEventListener('change', () => {
+      prepareSpeech();
+      safeSaveSettings();
+    });
+    autoMode.addEventListener('change', safeSaveSettings);
+    voiceMode.addEventListener('change', () => {
       prepareSpeech();
       safeSaveSettings();
     });

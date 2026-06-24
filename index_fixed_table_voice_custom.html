@@ -1,0 +1,904 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>グループ観察タイマー</title>
+  <style>
+    :root{
+      --bg:#0f172a;
+      --bg2:#111827;
+      --panel:#111827;
+      --panel2:#1f2937;
+      --text:#f8fafc;
+      --muted:#cbd5e1;
+      --accent:#38bdf8;
+      --warn:#f59e0b;
+      --danger:#ef4444;
+      --ok:#22c55e;
+      --shadow:0 18px 60px rgba(0,0,0,.35);
+      --radius:28px;
+    }
+
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+    html,body{
+      height:100%;
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+      overflow:hidden;
+      touch-action:manipulation;
+      user-select:none;
+    }
+    body{display:flex;align-items:stretch;justify-content:center;}
+    button,input,select{font:inherit;}
+
+    .app{
+      width:100%;
+      height:100%;
+      display:grid;
+      grid-template-rows:auto 1fr auto auto;
+      gap:16px;
+      padding:clamp(14px,2.4vw,32px);
+      background:
+        radial-gradient(circle at top left, rgba(56,189,248,.13), transparent 36%),
+        linear-gradient(145deg,var(--bg),var(--bg2));
+      transition:background .28s ease;
+    }
+    .app.caution{
+      background:
+        radial-gradient(circle at top left, rgba(245,158,11,.22), transparent 40%),
+        linear-gradient(145deg,#1f1607,#1f2937 68%,#111827);
+    }
+    .app.done{
+      background:
+        radial-gradient(circle at top left, rgba(248,113,113,.30), transparent 42%),
+        linear-gradient(145deg,#3f0b0b,#1f1111 62%,#111827);
+    }
+
+    header{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:56px;}
+    .title{font-size:clamp(18px,2.2vw,32px);font-weight:900;letter-spacing:.03em;white-space:nowrap;}
+    .header-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:190px;}
+    .clock{font-variant-numeric:tabular-nums;font-size:clamp(22px,3vw,46px);font-weight:950;letter-spacing:.03em;line-height:1;color:var(--text);}
+    .status{display:flex;align-items:center;gap:10px;font-size:clamp(13px,1.5vw,20px);color:var(--muted);}
+    .dot{width:13px;height:13px;border-radius:999px;background:var(--muted);box-shadow:0 0 0 4px rgba(255,255,255,.06)}
+    .dot.on{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.off{background:var(--muted)}
+
+    main{display:grid;grid-template-rows:1fr auto;gap:20px;min-height:0;}
+    .timer-card{
+      position:relative;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border-radius:var(--radius);
+      background:linear-gradient(145deg,rgba(255,255,255,.085),rgba(255,255,255,.025));
+      box-shadow:var(--shadow);
+      border:1px solid rgba(255,255,255,.09);
+      overflow:hidden;
+      transition:background .24s ease, border-color .24s ease;
+    }
+    .caution .timer-card{background:linear-gradient(145deg,rgba(245,158,11,.22),rgba(255,255,255,.035));border-color:rgba(245,158,11,.28);}
+    .done .timer-card{background:linear-gradient(145deg,rgba(239,68,68,.36),rgba(255,255,255,.04));border-color:rgba(248,113,113,.35);}
+    .time{
+      font-variant-numeric:tabular-nums;
+      font-weight:950;
+      letter-spacing:.02em;
+      font-size:clamp(86px,24vw,300px);
+      line-height:.9;
+      text-shadow:0 8px 24px rgba(0,0,0,.28);
+    }
+    .label{position:absolute;top:24px;left:28px;font-size:clamp(16px,2vw,30px);font-weight:800;color:var(--muted);}
+    .phase{position:absolute;right:28px;top:24px;font-size:clamp(15px,1.8vw,24px);font-weight:700;color:var(--muted);}
+
+    .progress-wrap{height:22px;background:rgba(255,255,255,.11);border-radius:999px;overflow:hidden;border:1px solid rgba(255,255,255,.08)}
+    .progress{height:100%;width:100%;background:var(--accent);transition:width .18s linear, background .2s linear;}
+    .caution .progress{background:var(--warn);} .done .progress{background:var(--danger)!important;width:0!important;}
+    .running .time{animation:pulse 2.2s ease-in-out infinite;}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.94}}
+
+    footer{display:grid;grid-template-columns:1fr 1.35fr 1fr;gap:16px;align-items:stretch;min-height:92px;}
+    .presets,.actions,.utility{display:flex;gap:12px;align-items:stretch;justify-content:center;}
+    button{
+      border:0;
+      border-radius:22px;
+      padding:14px 18px;
+      background:var(--panel2);
+      color:var(--text);
+      font-weight:850;
+      font-size:clamp(16px,1.8vw,26px);
+      box-shadow:0 8px 20px rgba(0,0,0,.18);
+      cursor:pointer;
+      min-width:84px;
+      touch-action:none;
+    }
+    button:active{transform:translateY(1px) scale(.99);}
+    button.selected{outline:4px solid rgba(56,189,248,.35);background:#164e63;}
+    button:disabled{opacity:.58;cursor:not-allowed;transform:none;}
+    .primary{background:var(--accent);color:#082f49;font-size:clamp(22px,2.4vw,34px);min-width:170px;}
+    .pause{background:var(--warn);color:#3b2500;}
+    .danger{background:var(--danger);color:white;min-width:150px;}
+    .danger.holding{background:#b91c1c;outline:4px solid rgba(248,113,113,.35);}
+    .ghost{background:rgba(255,255,255,.10);color:var(--muted);}
+    .ghost.active{background:#14532d;color:#dcfce7;}
+    .custom{display:flex;align-items:center;gap:8px;background:var(--panel2);border-radius:22px;padding:8px 12px;color:var(--muted);font-weight:800;}
+    .custom.active{outline:4px solid rgba(56,189,248,.35);background:#164e63;color:var(--text);}
+    .custom input{width:76px;border:0;border-radius:14px;padding:10px 8px;text-align:center;background:#e5e7eb;color:#111827;font-weight:950;font-size:clamp(18px,2vw,28px);}
+    .custom select{width:auto;min-width:68px;padding:10px 8px;border-radius:14px;font-size:clamp(16px,1.7vw,24px);}
+
+    .settings{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:14px;
+      align-items:center;
+    }
+    .setting-card{
+      min-height:72px;
+      border-radius:22px;
+      padding:12px 16px;
+      background:rgba(255,255,255,.075);
+      border:1px solid rgba(255,255,255,.08);
+      display:flex;
+      align-items:center;
+      gap:14px;
+    }
+    .setting-label{font-size:clamp(14px,1.5vw,22px);font-weight:850;color:var(--muted);white-space:nowrap;}
+    .volume-wrap{display:flex;align-items:center;gap:12px;width:100%;}
+    input[type="range"]{width:100%;height:40px;accent-color:var(--accent);cursor:pointer;}
+    .volume-value{min-width:4.2em;text-align:right;font-weight:900;font-size:clamp(16px,1.6vw,24px);}
+    select{
+      width:100%;
+      border:0;
+      border-radius:16px;
+      padding:12px 14px;
+      background:#e5e7eb;
+      color:#111827;
+      font-weight:850;
+      font-size:clamp(16px,1.7vw,24px);
+    }
+    .test-button{width:100%;min-width:0;}
+    .table-setting{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;width:100%;}
+    .table-custom-input{display:none;width:100%;border:0;border-radius:16px;padding:12px 14px;background:#e5e7eb;color:#111827;font-weight:850;font-size:clamp(16px,1.7vw,24px);}
+    .table-custom-input.show{display:block;}
+
+    @media (max-width:900px){
+      .app{gap:12px;padding:12px;grid-template-rows:auto 1fr auto auto;}
+      footer,.settings{grid-template-columns:1fr;min-height:auto;}
+      .presets,.actions,.utility{flex-wrap:wrap;}
+      button{min-width:72px;padding:12px 14px;}
+      .primary{min-width:140px;}
+      header{align-items:flex-start;}
+      .header-right{min-width:auto;}
+      .status{flex-wrap:wrap;justify-content:flex-end;}
+      .setting-card{min-height:64px;}
+      .table-setting{grid-template-columns:1fr;}
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="title">グループ観察タイマー</div>
+      <div class="header-right">
+        <div class="clock" id="clockText" aria-label="現在時刻">--:--</div>
+        <div class="status"><span class="dot off" id="wakeDot"></span><span id="wakeText">画面維持：OFF</span></div>
+      </div>
+    </header>
+
+    <main>
+      <section class="timer-card" aria-live="polite">
+        <div class="label" id="modeLabel">待機中</div>
+        <div class="phase" id="phaseLabel">時間を設定して開始してください</div>
+        <div class="time" id="timeText">03:00</div>
+      </section>
+      <div class="progress-wrap"><div class="progress" id="progress"></div></div>
+    </main>
+
+    <footer>
+      <div class="presets" aria-label="時間プリセット">
+        <button data-sec="30" id="preset30">30秒</button>
+        <button data-sec="60" id="preset1">1分</button>
+        <button data-sec="180" id="preset3">3分</button>
+        <button data-sec="300" id="preset5">5分</button>
+        <label class="custom" id="customBox">任意<input id="customValue" type="number" min="1" max="10800" value="3" inputmode="numeric"><select id="customUnit" aria-label="任意時間の単位"><option value="minutes">分</option><option value="seconds">秒</option></select></label>
+      </div>
+      <div class="actions">
+        <button class="primary" id="startBtn">開始</button>
+        <button class="pause" id="pauseBtn">一時停止</button>
+        <button class="danger" id="resetBtn">長押しリセット</button>
+      </div>
+      <div class="utility">
+        <button class="ghost" id="fullBtn">全画面</button>
+        <button class="ghost" id="wakeBtn">画面維持</button>
+      </div>
+    </footer>
+
+    <section class="settings" aria-label="通知設定">
+      <div class="setting-card">
+        <div class="setting-label">音量</div>
+        <div class="volume-wrap">
+          <input id="volumeSlider" type="range" min="0" max="100" value="70" />
+          <div class="volume-value" id="volumeValue">70%</div>
+        </div>
+      </div>
+      <div class="setting-card">
+        <div class="setting-label">通知</div>
+        <select id="notifyMode">
+          <option value="sound">電子音のみ</option>
+          <option value="speech">読み上げのみ</option>
+          <option value="both">電子音＋読み上げ</option>
+          <option value="silent">無音</option>
+        </select>
+      </div>
+      <div class="setting-card">
+        <div class="setting-label">テーブル名</div>
+        <div class="table-setting">
+          <select id="tableMode" aria-label="読み上げテーブル名">
+            <option value="none">なし</option>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="custom">自由入力</option>
+          </select>
+          <input id="tableCustomName" class="table-custom-input" type="text" maxlength="12" placeholder="例：窓側" aria-label="自由入力のテーブル名">
+        </div>
+      </div>
+      <div class="setting-card">
+        <div class="setting-label">連続</div>
+        <select id="autoMode">
+          <option value="off">自動開始しない</option>
+          <option value="on">5秒後に自動開始</option>
+        </select>
+      </div>
+      <div class="setting-card">
+        <div class="setting-label">声</div>
+        <select id="voiceMode">
+          <option value="standard">標準</option>
+          <option value="low">低め</option>
+        </select>
+      </div>
+      <div class="setting-card">
+        <div class="setting-label">確認</div>
+        <button class="ghost test-button" id="speechTestBtn" type="button">読み上げテスト</button>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const app = document.getElementById('app');
+    const timeText = document.getElementById('timeText');
+    const clockText = document.getElementById('clockText');
+    const progress = document.getElementById('progress');
+    const modeLabel = document.getElementById('modeLabel');
+    const phaseLabel = document.getElementById('phaseLabel');
+    const startBtn = document.getElementById('startBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const fullBtn = document.getElementById('fullBtn');
+    const wakeBtn = document.getElementById('wakeBtn');
+    const wakeDot = document.getElementById('wakeDot');
+    const wakeText = document.getElementById('wakeText');
+    const customValue = document.getElementById('customValue');
+    const customUnit = document.getElementById('customUnit');
+    const customBox = document.getElementById('customBox');
+    const volumeSlider = document.getElementById('volumeSlider');
+    const volumeValue = document.getElementById('volumeValue');
+    const notifyMode = document.getElementById('notifyMode');
+    const tableMode = document.getElementById('tableMode');
+    const tableCustomName = document.getElementById('tableCustomName');
+    const autoMode = document.getElementById('autoMode');
+    const voiceMode = document.getElementById('voiceMode');
+    const speechTestBtn = document.getElementById('speechTestBtn');
+    const presetButtons = [...document.querySelectorAll('[data-sec]')];
+
+    const STORAGE_KEY = 'groupObservationTimerSettingsV4';
+
+    let durationMs = 3 * 60 * 1000;
+    let remainingMs = durationMs;
+    let selectedMode = 'preset';
+    let selectedSeconds = 180;
+    let selectedPresetSeconds = 180;
+    let endAt = null;
+    let running = false;
+    let paused = false;
+    let intervalRunning = false;
+    let autoStartTimer = null;
+    let intervalEndAt = null;
+    let rafId = null;
+    let wakeLock = null;
+    let audioCtx = null;
+    let warnedThirtySeconds = false;
+    let finishedSoundPlayed = false;
+    let desiredWakeEnabled = false;
+    let resetHoldTimer = null;
+    let resetHoldActive = false;
+    let resetOriginalText = '長押しリセット';
+
+
+    function updateClock(){
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2,'0');
+      const m = String(now.getMinutes()).padStart(2,'0');
+      clockText.textContent = `${h}:${m}`;
+    }
+
+    function safeLoadSettings(){
+      try{
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : {};
+      }catch(e){
+        return {};
+      }
+    }
+
+    function safeSaveSettings(){
+      try{
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          selectedMode,
+          selectedSeconds,
+          selectedPresetSeconds,
+          customValue: Number(customValue.value) || 3,
+          customUnit: customUnit.value,
+          volume: Number(volumeSlider.value),
+          notifyMode: notifyMode.value,
+          tableMode: tableMode.value,
+          tableCustomName: tableCustomName.value.trim(),
+          autoMode: autoMode.value,
+          voiceMode: voiceMode.value,
+          desiredWakeEnabled
+        }));
+      }catch(e){}
+    }
+
+    function applyLoadedSettings(){
+      const s = safeLoadSettings();
+      selectedMode = s.selectedMode === 'custom' ? 'custom' : 'preset';
+      selectedPresetSeconds = [30,60,180,300].includes(Number(s.selectedPresetSeconds)) ? Number(s.selectedPresetSeconds) : 180;
+      selectedSeconds = Math.max(1, Math.min(10800, Number(s.selectedSeconds) || selectedPresetSeconds));
+      customUnit.value = s.customUnit === 'seconds' ? 'seconds' : 'minutes';
+      customValue.value = Math.max(1, Math.min(customUnit.value === 'seconds' ? 10800 : 180, Number(s.customValue) || (customUnit.value === 'seconds' ? selectedSeconds : Math.max(1, Math.round(selectedSeconds / 60)))));
+      volumeSlider.value = Math.max(0, Math.min(100, Number.isFinite(Number(s.volume)) ? Number(s.volume) : 70));
+      notifyMode.value = ['sound','speech','both','silent'].includes(s.notifyMode) ? s.notifyMode : 'sound';
+      tableMode.value = ['none','A','B','custom'].includes(s.tableMode) ? s.tableMode : 'none';
+      tableCustomName.value = typeof s.tableCustomName === 'string' ? s.tableCustomName.slice(0, 12) : '';
+      updateTableCustomVisibility();
+      autoMode.value = s.autoMode === 'on' ? 'on' : 'off';
+      voiceMode.value = ['standard','low'].includes(s.voiceMode) ? s.voiceMode : (s.voiceMode === 'male' ? 'low' : 'standard');
+      desiredWakeEnabled = Boolean(s.desiredWakeEnabled);
+      durationMs = selectedSeconds * 1000;
+      remainingMs = durationMs;
+      updateWakeButton(false);
+      updateVolumeLabel();
+    }
+
+    function updateVolumeLabel(){
+      volumeValue.textContent = `${volumeSlider.value}%`;
+    }
+
+    function getVolume(scale = 1){
+      return Math.max(0, Math.min(1, Number(volumeSlider.value) / 100)) * scale;
+    }
+
+    function initAudio(){
+      try{
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if(!Ctx) return;
+        audioCtx = audioCtx || new Ctx();
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+      }catch(e){}
+    }
+
+    function prepareSpeech(){
+      if(!('speechSynthesis' in window)) return;
+      try{
+        // cancel() はタブレットやSafari系で読み上げ詰まりの原因になりやすいため、ここでは使わない。
+        // 音声リストが取得できる環境では軽く初期化だけ行う。取得できなくても問題ない。
+        speechSynthesis.getVoices?.();
+      }catch(e){}
+    }
+
+    function pickJapaneseVoice(){
+      if(!('speechSynthesis' in window) || !speechSynthesis.getVoices) return null;
+      try{
+        const voices = speechSynthesis.getVoices() || [];
+        return voices.find(v => (v.lang || '').toLowerCase().startsWith('ja')) || null;
+      }catch(e){
+        return null;
+      }
+    }
+
+    function tone(freq, startDelay = 0, duration = 0.18, volume = 0.09, type = 'sine'){
+      if(!audioCtx) initAudio();
+      if(!audioCtx || volume <= 0) return;
+      try{
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        const now = audioCtx.currentTime + startDelay;
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, now);
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), now + 0.018);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + duration + 0.04);
+      }catch(e){}
+    }
+
+    function startSound(){
+      // 開始：短く控えめな「ピッ」
+      const v = getVolume(0.16);
+      tone(880, 0.00, 0.11, v, 'sine');
+    }
+
+    function warningSound(){
+      // 30秒前：やさしい「ピロリン」
+      const v = getVolume(0.18);
+      tone(659, 0.00, 0.13, v, 'sine');
+      tone(784, 0.16, 0.13, v, 'sine');
+      tone(988, 0.32, 0.20, v * 0.9, 'sine');
+    }
+
+    function finishSound(){
+      // 終了：しっかり気づける「ピピピピン！」
+      const v = getVolume(0.34);
+      tone(880, 0.00, 0.10, v, 'triangle');
+      tone(988, 0.13, 0.10, v, 'triangle');
+      tone(1175, 0.26, 0.10, v, 'triangle');
+      tone(988, 0.39, 0.10, v, 'triangle');
+      tone(1319, 0.54, 0.28, v * 0.95, 'triangle');
+    }
+
+    function testSound(){
+      const v = getVolume(0.16);
+      tone(784, 0.00, 0.11, v, 'sine');
+      tone(988, 0.14, 0.16, v, 'sine');
+    }
+
+    function soundFor(kind){
+      if(kind === 'start') startSound();
+      if(kind === 'warning') warningSound();
+      if(kind === 'finish') finishSound();
+      if(kind === 'test') testSound();
+    }
+
+    function speak(text, fallbackKind = null){
+      if(!text || !('speechSynthesis' in window) || !window.SpeechSynthesisUtterance) return false;
+      try{
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ja-JP';
+        const voice = pickJapaneseVoice();
+        if(voice) utterance.voice = voice;
+        utterance.rate = 1.0;
+        utterance.pitch = voiceMode.value === 'low' ? 0.75 : 1.0;
+        utterance.volume = Math.max(0, Math.min(1, Number(volumeSlider.value) / 100));
+        if(fallbackKind){
+          utterance.onerror = () => soundFor(fallbackKind);
+        }
+        speechSynthesis.speak(utterance);
+        return true;
+      }catch(e){
+        return false;
+      }
+    }
+
+    function updateTableCustomVisibility(){
+      const isCustom = tableMode.value === 'custom';
+      tableCustomName.classList.toggle('show', isCustom);
+      tableCustomName.disabled = !isCustom;
+    }
+
+    function normalizeTableName(name){
+      return String(name || '').trim().replace(/、+$/g, '').slice(0, 12);
+    }
+
+    function getTableSpeechPrefix(){
+      if(tableMode.value === 'A') return 'Aテーブル、';
+      if(tableMode.value === 'B') return 'Bテーブル、';
+      if(tableMode.value === 'custom'){
+        const name = normalizeTableName(tableCustomName.value);
+        return name ? `${name}、` : '';
+      }
+      return '';
+    }
+
+    function getSpeechMessage(kind){
+      const messages = {
+        start: '開始します',
+        warning: '残り30秒です',
+        finish: '終了です。次のかたに回してください。'
+      };
+      const message = messages[kind] || '';
+      return message ? `${getTableSpeechPrefix()}${message}` : '';
+    }
+
+    function notify(kind){
+      const mode = notifyMode.value;
+      if(mode === 'silent') return;
+      if(mode === 'sound' || mode === 'both'){
+        soundFor(kind);
+      }
+      if(mode === 'speech' || mode === 'both'){
+        const ok = speak(getSpeechMessage(kind), mode === 'speech' ? kind : null);
+        // 読み上げのみで非対応の場合は、完全な無反応を避けるため電子音にフォールバック
+        if(!ok && mode === 'speech') soundFor(kind);
+      }
+    }
+
+    function runSpeechTest(){
+      initAudio();
+      prepareSpeech();
+      const ok = speak(`${getTableSpeechPrefix()}読み上げテストです`, 'test');
+      if(!ok) testSound();
+    }
+
+    function format(ms){
+      ms = Math.max(0, Math.ceil(ms / 1000) * 1000);
+      const total = Math.floor(ms / 1000);
+      const m = Math.floor(total / 60);
+      const s = total % 60;
+      return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    function renderSelection(){
+      presetButtons.forEach(btn => {
+        const sec = Number(btn.dataset.sec);
+        btn.classList.toggle('selected', selectedMode === 'preset' && selectedPresetSeconds === sec);
+        btn.disabled = running || intervalRunning;
+      });
+      customBox.classList.toggle('active', selectedMode === 'custom');
+      customValue.disabled = running || intervalRunning;
+      customUnit.disabled = running || intervalRunning;
+    }
+
+    function render(){
+      const ratio = durationMs ? remainingMs / durationMs : 0;
+      const isDone = !running && remainingMs <= 0;
+      const isPaused = paused && !running && remainingMs > 0;
+      const isCaution = running && remainingMs <= 30 * 1000 && remainingMs > 0;
+      timeText.textContent = format(remainingMs);
+      progress.style.width = `${Math.max(0, Math.min(100, ratio * 100))}%`;
+      app.classList.toggle('running', running);
+      app.classList.toggle('caution', isCaution);
+      app.classList.toggle('done', isDone);
+
+      if(intervalRunning){
+        modeLabel.textContent = '交代時間';
+        phaseLabel.textContent = '5秒後に次のタイマーを開始します';
+      }else if(isDone){
+        modeLabel.textContent = '終了';
+        phaseLabel.textContent = '終了しました';
+      }else if(isPaused){
+        modeLabel.textContent = '一時停止中';
+        phaseLabel.textContent = '一時停止中';
+      }else if(isCaution){
+        modeLabel.textContent = '観察中';
+        phaseLabel.textContent = 'まもなく終了';
+      }else if(running){
+        modeLabel.textContent = '観察中';
+        phaseLabel.textContent = 'タイマー進行中';
+      }else{
+        modeLabel.textContent = '待機中';
+        phaseLabel.textContent = '時間を設定して開始してください';
+      }
+
+      if(intervalRunning){
+        startBtn.textContent = '待機中';
+      }else if(running){
+        startBtn.textContent = '進行中';
+      }else if(isDone){
+        startBtn.textContent = '再開始';
+      }else if(isPaused){
+        startBtn.textContent = '再開';
+      }else{
+        startBtn.textContent = '開始';
+      }
+
+      if(!resetHoldActive){
+        resetBtn.textContent = '長押しリセット';
+        resetOriginalText = '長押しリセット';
+      }
+
+      startBtn.disabled = running || intervalRunning;
+      pauseBtn.disabled = !running;
+      renderSelection();
+    }
+
+    function setDurationSeconds(seconds, mode = 'custom'){
+      if(running || intervalRunning) return;
+      paused = false;
+      const sec = Math.max(1, Math.min(10800, Number(seconds) || 180));
+      selectedMode = mode;
+      selectedSeconds = sec;
+      if(mode === 'preset') selectedPresetSeconds = sec;
+      durationMs = sec * 1000;
+      remainingMs = durationMs;
+      warnedThirtySeconds = false;
+      finishedSoundPlayed = false;
+      safeSaveSettings();
+      render();
+    }
+
+    function customSecondsFromInput(){
+      const value = Math.max(1, Number(customValue.value) || 1);
+      return customUnit.value === 'seconds' ? value : value * 60;
+    }
+
+    function start(){
+      if(running || intervalRunning) return;
+      initAudio();
+      prepareSpeech();
+      if(autoStartTimer){
+        clearTimeout(autoStartTimer);
+        autoStartTimer = null;
+      }
+      if(remainingMs <= 0){
+        remainingMs = durationMs;
+        warnedThirtySeconds = false;
+        finishedSoundPlayed = false;
+      }
+      if(remainingMs === durationMs){
+        warnedThirtySeconds = false;
+        finishedSoundPlayed = false;
+      }
+      paused = false;
+      running = true;
+      endAt = performance.now() + remainingMs;
+      if(desiredWakeEnabled) requestWakeLock();
+      notify('start');
+      tick();
+    }
+
+    function pause(){
+      if(!running) return;
+      remainingMs = Math.max(0, endAt - performance.now());
+      running = false;
+      paused = true;
+      cancelAnimationFrame(rafId);
+      render();
+    }
+
+    function reset(){
+      running = false;
+      intervalRunning = false;
+      paused = false;
+      if(autoStartTimer){
+        clearTimeout(autoStartTimer);
+        autoStartTimer = null;
+      }
+      cancelAnimationFrame(rafId);
+      remainingMs = durationMs;
+      warnedThirtySeconds = false;
+      finishedSoundPlayed = false;
+      try{ if('speechSynthesis' in window) speechSynthesis.cancel(); }catch(e){}
+      render();
+    }
+
+    function tick(){
+      if(!running) return;
+      remainingMs = Math.max(0, endAt - performance.now());
+
+      if(durationMs > 30 * 1000 && !warnedThirtySeconds && remainingMs <= 30 * 1000 && remainingMs > 0){
+        warnedThirtySeconds = true;
+        notify('warning');
+      }
+
+      render();
+
+      if(remainingMs <= 0){
+        running = false;
+        paused = false;
+        cancelAnimationFrame(rafId);
+        if(!finishedSoundPlayed){
+          finishedSoundPlayed = true;
+          notify('finish');
+        }
+        render();
+        if(autoMode.value === 'on'){
+          beginAutoInterval();
+        }
+        return;
+      }
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function beginAutoInterval(){
+      intervalRunning = true;
+      remainingMs = 5 * 1000;
+      intervalEndAt = performance.now() + remainingMs;
+      autoIntervalTick();
+    }
+
+    function autoIntervalTick(){
+      if(!intervalRunning) return;
+      remainingMs = Math.max(0, intervalEndAt - performance.now());
+      render();
+      if(remainingMs <= 0){
+        intervalRunning = false;
+        remainingMs = durationMs;
+        warnedThirtySeconds = false;
+        finishedSoundPlayed = false;
+        render();
+        autoStartTimer = setTimeout(() => {
+          autoStartTimer = null;
+          start();
+        }, 50);
+        return;
+      }
+      rafId = requestAnimationFrame(autoIntervalTick);
+    }
+
+    function updateWakeButton(active){
+      wakeBtn.classList.toggle('active', desiredWakeEnabled);
+      wakeBtn.textContent = desiredWakeEnabled ? '画面維持ON' : '画面維持';
+      if(!desiredWakeEnabled){
+        wakeDot.className = 'dot off';
+        wakeText.textContent = '画面維持：OFF';
+      }else if(active){
+        wakeDot.className = 'dot on';
+        wakeText.textContent = '画面維持：ON';
+      }else{
+        wakeDot.className = 'dot warn';
+        wakeText.textContent = '画面維持：待機中';
+      }
+    }
+
+    async function requestWakeLock(){
+      desiredWakeEnabled = true;
+      safeSaveSettings();
+      updateWakeButton(false);
+      if(!('wakeLock' in navigator)){
+        wakeDot.className = 'dot warn';
+        wakeText.textContent = '画面維持：非対応';
+        return;
+      }
+      try{
+        wakeLock = await navigator.wakeLock.request('screen');
+        updateWakeButton(true);
+        wakeLock.addEventListener('release', () => {
+          if(desiredWakeEnabled){
+            wakeDot.className = 'dot warn';
+            wakeText.textContent = '画面維持：解除';
+          }
+        });
+      }catch(e){
+        wakeDot.className = 'dot warn';
+        wakeText.textContent = '画面維持：許可されず';
+      }
+    }
+
+    async function releaseWakeLock(){
+      desiredWakeEnabled = false;
+      safeSaveSettings();
+      try{
+        if(wakeLock){
+          await wakeLock.release();
+          wakeLock = null;
+        }
+      }catch(e){}
+      updateWakeButton(false);
+    }
+
+    async function toggleWakeLock(){
+      if(desiredWakeEnabled){
+        await releaseWakeLock();
+      }else{
+        await requestWakeLock();
+      }
+    }
+
+    async function toggleFullscreen(){
+      try{
+        if(!document.fullscreenElement){
+          await document.documentElement.requestFullscreen();
+        }else{
+          await document.exitFullscreen();
+        }
+      }catch(e){}
+    }
+
+    function beginResetHold(e){
+      e.preventDefault();
+      if(resetHoldActive) return;
+      resetHoldActive = true;
+      resetOriginalText = resetBtn.textContent;
+      resetBtn.classList.add('holding');
+      resetBtn.textContent = '長押しでリセット中…';
+      resetHoldTimer = setTimeout(() => {
+        resetHoldTimer = null;
+        endResetHold(false);
+        reset();
+      }, 1200);
+    }
+
+    function endResetHold(cancel = true){
+      if(!resetHoldActive) return;
+      resetHoldActive = false;
+      if(cancel && resetHoldTimer){
+        clearTimeout(resetHoldTimer);
+        resetHoldTimer = null;
+      }
+      resetBtn.classList.remove('holding');
+      resetBtn.textContent = resetOriginalText;
+    }
+
+    presetButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sec = Number(btn.dataset.sec);
+        if(sec % 60 === 0){
+          customValue.value = sec / 60;
+          customUnit.value = 'minutes';
+        }else{
+          customValue.value = sec;
+          customUnit.value = 'seconds';
+        }
+        setDurationSeconds(sec, 'preset');
+      });
+    });
+
+    customValue.addEventListener('focus', () => {
+      if(!running) selectedMode = 'custom';
+      renderSelection();
+    });
+    customValue.addEventListener('change', () => setDurationSeconds(customSecondsFromInput(), 'custom'));
+    customValue.addEventListener('input', () => {
+      if(!running){
+        selectedMode = 'custom';
+        selectedSeconds = Math.max(1, Math.min(10800, customSecondsFromInput()));
+        safeSaveSettings();
+        renderSelection();
+      }
+    });
+    customUnit.addEventListener('change', () => setDurationSeconds(customSecondsFromInput(), 'custom'));
+
+    volumeSlider.addEventListener('input', () => {
+      updateVolumeLabel();
+      safeSaveSettings();
+    });
+    notifyMode.addEventListener('change', () => {
+      prepareSpeech();
+      safeSaveSettings();
+    });
+    tableMode.addEventListener('change', () => {
+      updateTableCustomVisibility();
+      if(tableMode.value === 'custom') tableCustomName.focus();
+      safeSaveSettings();
+    });
+    tableCustomName.addEventListener('input', safeSaveSettings);
+    autoMode.addEventListener('change', safeSaveSettings);
+    voiceMode.addEventListener('change', () => {
+      prepareSpeech();
+      safeSaveSettings();
+    });
+    speechTestBtn.addEventListener('click', runSpeechTest);
+
+    startBtn.addEventListener('click', start);
+    pauseBtn.addEventListener('click', pause);
+    fullBtn.addEventListener('click', toggleFullscreen);
+    wakeBtn.addEventListener('click', toggleWakeLock);
+
+    resetBtn.addEventListener('pointerdown', beginResetHold);
+    resetBtn.addEventListener('pointerup', () => endResetHold(true));
+    resetBtn.addEventListener('pointercancel', () => endResetHold(true));
+    resetBtn.addEventListener('pointerleave', () => endResetHold(true));
+    resetBtn.addEventListener('contextmenu', e => e.preventDefault());
+
+    document.addEventListener('visibilitychange', () => {
+      if(document.visibilityState === 'visible' && desiredWakeEnabled && running) requestWakeLock();
+    });
+
+    window.addEventListener('beforeunload', (e) => {
+      if(running){
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+
+    updateClock();
+    setInterval(updateClock, 1000);
+    applyLoadedSettings();
+    render();
+  </script>
+</body>
+</html>

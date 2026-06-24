@@ -157,6 +157,7 @@
       font-weight:850;
       font-size:clamp(16px,1.7vw,24px);
     }
+    .test-button{width:100%;min-width:0;}
 
     @media (max-width:900px){
       .app{gap:12px;padding:12px;grid-template-rows:auto 1fr auto auto;}
@@ -236,9 +237,13 @@
       <div class="setting-card">
         <div class="setting-label">声</div>
         <select id="voiceMode">
-          <option value="female">女性寄り</option>
-          <option value="male">男性寄り</option>
+          <option value="standard">標準</option>
+          <option value="low">低め</option>
         </select>
+      </div>
+      <div class="setting-card">
+        <div class="setting-label">確認</div>
+        <button class="ghost test-button" id="speechTestBtn" type="button">読み上げテスト</button>
       </div>
     </section>
   </div>
@@ -265,6 +270,7 @@
     const notifyMode = document.getElementById('notifyMode');
     const autoMode = document.getElementById('autoMode');
     const voiceMode = document.getElementById('voiceMode');
+    const speechTestBtn = document.getElementById('speechTestBtn');
     const presetButtons = [...document.querySelectorAll('[data-sec]')];
 
     const STORAGE_KEY = 'groupObservationTimerSettingsV4';
@@ -334,7 +340,7 @@
       volumeSlider.value = Math.max(0, Math.min(100, Number.isFinite(Number(s.volume)) ? Number(s.volume) : 70));
       notifyMode.value = ['sound','speech','both','silent'].includes(s.notifyMode) ? s.notifyMode : 'sound';
       autoMode.value = s.autoMode === 'on' ? 'on' : 'off';
-      voiceMode.value = s.voiceMode === 'male' ? 'male' : 'female';
+      voiceMode.value = ['standard','low'].includes(s.voiceMode) ? s.voiceMode : (s.voiceMode === 'male' ? 'low' : 'standard');
       desiredWakeEnabled = Boolean(s.desiredWakeEnabled);
       durationMs = selectedSeconds * 1000;
       remainingMs = durationMs;
@@ -362,67 +368,91 @@
     function prepareSpeech(){
       if(!('speechSynthesis' in window)) return;
       try{
-        speechSynthesis.cancel();
-        // 一部ブラウザで音声リストの初期化を促すために参照だけ行う
+        // cancel() はタブレットやSafari系で読み上げ詰まりの原因になりやすいため、ここでは使わない。
+        // 音声リストが取得できる環境では軽く初期化だけ行う。取得できなくても問題ない。
         speechSynthesis.getVoices?.();
       }catch(e){}
     }
 
     function pickJapaneseVoice(){
       if(!('speechSynthesis' in window) || !speechSynthesis.getVoices) return null;
-      const voices = speechSynthesis.getVoices();
-      const japaneseVoices = voices.filter(v => (v.lang || '').toLowerCase().startsWith('ja'));
-      if(!japaneseVoices.length) return null;
-      const wantsMale = voiceMode.value === 'male';
-      const maleHints = ['male','男','otoya','ichiro','keita'];
-      const femaleHints = ['female','女','kyoko','nanami','haruka'];
-      const hints = wantsMale ? maleHints : femaleHints;
-      return japaneseVoices.find(v => hints.some(h => v.name.toLowerCase().includes(h.toLowerCase()))) || japaneseVoices[0];
+      try{
+        const voices = speechSynthesis.getVoices() || [];
+        return voices.find(v => (v.lang || '').toLowerCase().startsWith('ja')) || null;
+      }catch(e){
+        return null;
+      }
     }
 
-    function tone(freq, startDelay = 0, duration = 0.18, volume = 0.09){
+    function tone(freq, startDelay = 0, duration = 0.18, volume = 0.09, type = 'sine'){
       if(!audioCtx) initAudio();
       if(!audioCtx || volume <= 0) return;
       try{
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         const now = audioCtx.currentTime + startDelay;
-        osc.type = 'sine';
+        osc.type = type;
         osc.frequency.setValueAtTime(freq, now);
         gain.gain.setValueAtTime(0.001, now);
-        gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.001, volume), now + 0.018);
         gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
         osc.connect(gain);
         gain.connect(audioCtx.destination);
         osc.start(now);
-        osc.stop(now + duration + 0.03);
+        osc.stop(now + duration + 0.04);
       }catch(e){}
     }
 
+    function startSound(){
+      // 開始：短く控えめな「ピッ」
+      const v = getVolume(0.16);
+      tone(880, 0.00, 0.11, v, 'sine');
+    }
+
     function warningSound(){
-      const v = getVolume(0.22);
-      tone(784, 0.00, 0.14, v);
-      tone(1046, 0.18, 0.16, v);
+      // 30秒前：やさしい「ピロリン」
+      const v = getVolume(0.18);
+      tone(659, 0.00, 0.13, v, 'sine');
+      tone(784, 0.16, 0.13, v, 'sine');
+      tone(988, 0.32, 0.20, v * 0.9, 'sine');
     }
 
     function finishSound(){
-      const v = getVolume(0.28);
-      tone(523, 0.00, 0.18, v);
-      tone(659, 0.22, 0.18, v);
-      tone(880, 0.46, 0.32, v);
+      // 終了：しっかり気づける「ピピピピン！」
+      const v = getVolume(0.34);
+      tone(880, 0.00, 0.10, v, 'triangle');
+      tone(988, 0.13, 0.10, v, 'triangle');
+      tone(1175, 0.26, 0.10, v, 'triangle');
+      tone(988, 0.39, 0.10, v, 'triangle');
+      tone(1319, 0.54, 0.28, v * 0.95, 'triangle');
     }
 
-    function speak(text){
-      if(!('speechSynthesis' in window)) return false;
+    function testSound(){
+      const v = getVolume(0.16);
+      tone(784, 0.00, 0.11, v, 'sine');
+      tone(988, 0.14, 0.16, v, 'sine');
+    }
+
+    function soundFor(kind){
+      if(kind === 'start') startSound();
+      if(kind === 'warning') warningSound();
+      if(kind === 'finish') finishSound();
+      if(kind === 'test') testSound();
+    }
+
+    function speak(text, fallbackKind = null){
+      if(!text || !('speechSynthesis' in window) || !window.SpeechSynthesisUtterance) return false;
       try{
-        speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'ja-JP';
         const voice = pickJapaneseVoice();
         if(voice) utterance.voice = voice;
         utterance.rate = 1.0;
-        utterance.pitch = voiceMode.value === 'male' ? 0.72 : 1.08;
+        utterance.pitch = voiceMode.value === 'low' ? 0.75 : 1.0;
         utterance.volume = Math.max(0, Math.min(1, Number(volumeSlider.value) / 100));
+        if(fallbackKind){
+          utterance.onerror = () => soundFor(fallbackKind);
+        }
         speechSynthesis.speak(utterance);
         return true;
       }catch(e){
@@ -434,9 +464,7 @@
       const mode = notifyMode.value;
       if(mode === 'silent') return;
       if(mode === 'sound' || mode === 'both'){
-        if(kind === 'start') warningSound();
-        if(kind === 'warning') warningSound();
-        if(kind === 'finish') finishSound();
+        soundFor(kind);
       }
       if(mode === 'speech' || mode === 'both'){
         const messages = {
@@ -444,14 +472,17 @@
           warning: '終了30秒前です',
           finish: '終了です。次のかたに回してください'
         };
-        const ok = speak(messages[kind] || '');
+        const ok = speak(messages[kind] || '', mode === 'speech' ? kind : null);
         // 読み上げのみで非対応の場合は、完全な無反応を避けるため電子音にフォールバック
-        if(!ok && mode === 'speech'){
-          if(kind === 'start') warningSound();
-          if(kind === 'warning') warningSound();
-          if(kind === 'finish') finishSound();
-        }
+        if(!ok && mode === 'speech') soundFor(kind);
       }
+    }
+
+    function runSpeechTest(){
+      initAudio();
+      prepareSpeech();
+      const ok = speak('読み上げテストです', 'test');
+      if(!ok) testSound();
     }
 
     function format(ms){
@@ -786,6 +817,7 @@
       prepareSpeech();
       safeSaveSettings();
     });
+    speechTestBtn.addEventListener('click', runSpeechTest);
 
     startBtn.addEventListener('click', start);
     pauseBtn.addEventListener('click', pause);

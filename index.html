@@ -506,8 +506,8 @@
     function getSpeechMessage(kind){
       const messages = {
         start: '開始します',
-        warning: '残り30秒です',
-        finish: '終了です。次のかたに回してください。'
+        warning: '残り30秒',
+        finish: '終了です'
       };
       const message = messages[kind] || '';
       return message ? `${getTableSpeechPrefix()}${message}` : '';
